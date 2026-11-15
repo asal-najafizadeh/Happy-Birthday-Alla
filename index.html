@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Happy Birthday Alla</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@700&family=Noto+Sans+JP:wght@700&family=Noto+Sans+KR:wght@700&family=Noto+Sans+SC:wght@700&family=Noto+Sans+Devanagari:wght@700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #start, #replay {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    font: 700 18px Arial, sans-serif; color: #fff0fa;
+    background: transparent; border: 2px solid #b47cff; border-radius: 999px;
+    padding: 12px 28px; cursor: pointer; letter-spacing: .5px;
+  }
+  #start { top: 50%; transform: translate(-50%, -50%); font-size: 22px;
+           box-shadow: 0 0 24px #b47cff88; animation: glow 1.6s ease-in-out infinite; }
+  #replay { bottom: 28px; display: none; font-size: 15px; padding: 8px 20px; }
+  @keyframes glow { 50% { box-shadow: 0 0 40px #ff6ec7aa; border-color: #ff6ec7; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="start">🎁 Tap to open</button>
+<button id="replay">↻ again</button>
+<script>
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d");
+const W = 540, H = 700;          // design size, (0,0) is the middle
+const BG = "#000000";
+const LATIN = 'Arial, "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", "Noto Sans Devanagari", sans-serif';
+const FA = 'Vazirmatn, Tahoma, sans-serif';
+
+let scale = 1;
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+  scale = Math.min(innerWidth / W, innerHeight / H) * dpr;
+}
+addEventListener("resize", resize); resize();
+
+const wishes = [
+  "Happy Birthday Alla", "İyi ki doğdun Alla", "Feliz cumpleaños Alla",
+  "Joyeux anniversaire Alla", "Alles Gute zum Geburtstag Alla",
+  "Buon compleanno Alla", "Feliz aniversário Alla", "С днём рождения Alla",
+  "생일 축하해요 Alla", "お誕生日おめでとう Alla", "生日快乐 Alla",
+  "जन्मदिन मुबारक हो Alla", "Χρόνια πολλά Alla", "Gefeliciteerd Alla",
+  "Grattis på födelsedagen Alla", "Wszystkiego najlepszego Alla",
+  "Chúc mừng sinh nhật Alla", "Selamat ulang tahun Alla",
+  "Hyvää syntymäpäivää Alla", "Gratulerer med dagen Alla",
+];
+const persian = "تولدت مبارک ئالا";
+const kurdish = "ڕۆژی لەدایکبوونت پیرۆز بێت ئالا";
+
+const TIERS = [            // top y, bottom y, half width top, half width bottom
+  [-50, 30, 115, 130],
+  [38, 134, 165, 190],
+  [142, 254, 220, 250],
+];
+const ROW_H = 16, GAP = 7;
+const CAKE_TOP = TIERS[0][0], CAKE_BOTTOM = TIERS[2][1];
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+function mix(c1, c2, t) {
+  t = Math.max(0, Math.min(1, t));
+  const a = hex(c1), b = hex(c2);
+  return "rgb(" + a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",") + ")";
+}
+function colorFor(y) {
+  if (Math.random() < 0.08) return "#ffffff";
+  const t = (y - CAKE_TOP) / (CAKE_BOTTOM - CAKE_TOP) + rnd(-0.25, 0.25);
+  if (t < 0.5) return toHex(mix("#8fb8ff", "#b47cff", t * 2));
+  return toHex(mix("#b47cff", "#ff6ec7", (t - 0.5) * 2));
+}
+function toHex(rgb) {
+  return "#" + rgb.match(/\d+/g).map(v => (+v).toString(16).padStart(2, "0")).join("");
+}
+function halfWidth(y) {
+  for (const [yt, yb, wt, wb] of TIERS)
+    if (y >= yt && y <= yb) return wt + (wb - wt) * (y - yt) / (yb - yt);
+  return 0;
+}
+function measure(text, size, font) {
+  ctx.font = `700 ${size}px ${font}`;
+  return ctx.measureText(text).width;
+}
+
+// ---------- state ----------
+let words, candles, dots, smoke, rowPlan, phase, phaseStart, frame, stars;
+
+function fillSegment(y, left, right) {
+  const row = [];
+  let x = left, tries = 0;
+  while (tries < 40) {
+    const size = pick([12, 11, 10, 9]);
+    const text = pick(wishes);
+    const w = measure(text, size, LATIN);
+    if (x + w <= right) { row.push({ text, size, font: LATIN, w, x, y }); x += w + GAP; }
+    else tries++;
+  }
+  if (row.length > 1) {
+    const extra = (right - (x - GAP)) / (row.length - 1);
+    row.forEach((r, i) => r.x += i * extra);
+  } else if (row.length) row[0].x += (right - (x - GAP)) / 2;
+  row.forEach(r => addWord(r.text, r.x + r.w / 2, y, r.size, r.font, colorFor(y)));
+}
+function addWord(text, cx, y, size, font, color) {
+  words.push({ text, cx, y, size, font, color, vy: 0, dx: 0, delay: 0, fade: 0, alive: true });
+}
+function buildRow(y, special) {
+  const hw = halfWidth(y - ROW_H / 2);
+  if (!special) return fillSegment(y, -hw, hw);
+  const w = measure(special, 15, FA);
+  addWord(special, 0, y, 15, FA, "#fff0fa");
+  fillSegment(y, -hw, -w / 2 - GAP * 2);
+  fillSegment(y, w / 2 + GAP * 2, hw);
+}
+function makeRows() {
+  const rows = [];
+  for (const [yt, yb] of TIERS) {
+    const n = Math.floor((yb - yt) / ROW_H);
+    for (let i = 0; i < n; i++) rows.push(yt + ROW_H / 2 + i * ROW_H + 2);
+  }
+  rows.sort((a, b) => b - a);
+  const plan = rows.map(y => [y, null]);
+  const mid = rows.map((y, i) => [y, i]).filter(([y]) => y >= TIERS[1][0] && y <= TIERS[1][1]);
+  const bot = rows.map((y, i) => [y, i]).filter(([y]) => y >= TIERS[2][0] && y <= TIERS[2][1]);
+  plan[mid[Math.floor(mid.length / 2)][1]][1] = persian;
+  plan[bot[Math.floor(bot.length / 2)][1]][1] = kurdish;
+  return plan;
+}
+
+function makeCandles() {
+  const base = CAKE_TOP - 8, x0 = -32, x1 = 32;
+  const two = [[x0 - 17, base - 46], [x0 - 13, base - 60], [x0, base - 66], [x0 + 13, base - 60],
+               [x0 + 15, base - 46], [x0 + 6, base - 30], [x0 - 18, base], [x0 + 18, base]];
+  const one = [[x1 - 11, base - 52], [x1 + 3, base - 66], [x1 + 3, base]];
+  candles = [
+    { pts: two, top: [x0, base - 66], lit: true },
+    { pts: one, top: [x1 + 3, base - 66], lit: true },
+  ];
+  dots = [-95, -70, 0, 70, 95].map(x => [x, base + 4]);
+}
+function smoothPath(pts) {
+  ctx.beginPath();
+  ctx.moveTo(...pts[0]);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2;
+    if (i === pts.length - 2) ctx.quadraticCurveTo(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+    else ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
+  }
+  if (pts.length === 2) ctx.lineTo(...pts[1]);
+}
+function drawCandles(fade) {
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for (const c of candles) {
+    smoothPath(c.pts); ctx.strokeStyle = mix("#7ec8ff", BG, fade); ctx.lineWidth = 11; ctx.stroke();
+    smoothPath(c.pts); ctx.strokeStyle = mix("#c9e8ff", BG, fade); ctx.lineWidth = 3; ctx.stroke();
+    const [x, y] = c.top;
+    ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x, y - 11);
+    ctx.strokeStyle = mix("#dddddd", BG, fade); ctx.lineWidth = 2; ctx.stroke();
+    if (c.lit) drawFlame(x, y - 18);
+  }
+  for (const [x, y] of dots) {
+    ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+    ctx.fillStyle = mix("#ff4b3a", BG, fade); ctx.fill();
+  }
+}
+function drawFlame(x, y) {
+  const k = rnd(0.88, 1.12), sway = rnd(-1, 1);
+  const g = ctx.createRadialGradient(x, y, 0, x, y, 22 * k);
+  g.addColorStop(0, "rgba(255,140,40,0.45)"); g.addColorStop(1, "rgba(255,90,0,0)");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 22 * k, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x + sway, y - 1, 5 * k, 8 * k, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#ff5a1f"; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x + sway * 0.6, y + 1, 2.4 * k, 4 * k, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffd36b"; ctx.fill();
+}
+function blowOut(c) {
+  c.lit = false;
+  const [x, y] = c.top;
+  for (let i = 0; i < 8; i++) smoke.push({ x: x + rnd(-2, 2), y: y - 18 - rnd(0, 6), r: rnd(1.2, 2.6), life: rnd(25, 45), max: 45 });
+}
+function drawSmoke() {
+  for (const p of smoke) {
+    p.x += rnd(-0.6, 0.6); p.y -= 1; p.r += 0.04; p.life--;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fillStyle = mix(BG, "#6a6a6a", p.life / p.max); ctx.fill();
+  }
+  smoke = smoke.filter(p => p.life > 0);
+}
+
+function drawWords() {
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const w of words) {
+    if (!w.alive) continue;
+    ctx.font = `700 ${w.size}px ${w.font}`;
+    ctx.fillStyle = mix(w.color, BG, w.fade);
+    ctx.fillText(w.text, w.cx, w.y);
+  }
+}
+function startFall() {
+  for (const w of words) w.delay = Math.floor((w.y - CAKE_TOP) / 3 + rnd(0, 40));
+}
+function updateFall() {
+  let alive = 0;
+  for (const w of words) {
+    if (!w.alive) continue;
+    alive++;
+    if (w.delay > 0) { w.delay--; continue; }
+    w.vy += 0.35; w.y += w.vy; w.cx += rnd(-0.3, 0.3); w.fade += 0.025;
+    if (w.fade >= 1) w.alive = false;
+  }
+  return alive;
+}
+
+const FINAL_COLORS = ["#ff6ec7", "#ffffff", "#fff0fa", "#b47cff", "#ff4b6e"];
+function drawFinal(t) {
+  const pulse = 0.85 + 0.15 * Math.sin(t / 12);
+  const items = [
+    ["21", -120, `700 130px Arial, sans-serif`],
+    ["Happy 21st Birthday Alla", 20, `700 34px ${LATIN}`],
+    [persian, 85, `700 34px ${FA}`],
+    [kurdish, 140, `700 24px ${FA}`],
+    ["♥", 205, `700 34px Arial, sans-serif`],
+  ];
+  if (t % 6 === 0) stars = Array.from({ length: 30 }, () => [rnd(-W / 2, W / 2), rnd(-H / 2, H / 2), rnd(0.8, 2), pick(FINAL_COLORS), rnd(0.3, 1)]);
+  for (const [x, y, r, c, a] of stars) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = mix(BG, c, a); ctx.fill(); }
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  items.forEach(([text, y, font], i) => {
+    const appear = Math.max(0, Math.min(1, t / 25 - i * 0.35));
+    ctx.font = font;
+    ctx.fillStyle = mix(BG, FINAL_COLORS[i], appear * pulse);
+    if (i === 0) { ctx.shadowColor = "#ff6ec7"; ctx.shadowBlur = 30 * appear; }
+    ctx.fillText(text, 0, y);
+    ctx.shadowBlur = 0;
+  });
+  if (t === 120) document.getElementById("replay").style.display = "block";
+}
+
+// ---------- main loop ----------
+function reset() {
+  words = []; smoke = []; stars = []; candles = []; dots = [];
+  rowPlan = makeRows(); phase = "build"; phaseStart = 0; frame = 0;
+}
+function step() {
+  frame++;
+  const t = frame - phaseStart;
+  if (phase === "build") {
+    if (rowPlan.length && t % 2 === 0) buildRow(...rowPlan.shift());
+    if (!rowPlan.length) { makeCandles(); phase = "candles"; phaseStart = frame; }
+  } else if (phase === "candles") {
+    if (t > 110) { phase = "blow"; phaseStart = frame; }
+  } else if (phase === "blow") {
+    const lit = candles.filter(c => c.lit);
+    if (lit.length && t % 35 === 0) blowOut(lit[0]);
+    if (!lit.length && !smoke.length && t > 40) { startFall(); phase = "fall"; phaseStart = frame; }
+  } else if (phase === "fall") {
+    if (updateFall() === 0) { phase = "final"; phaseStart = frame; }
+  }
+}
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = BG; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(scale, 0, 0, scale, cv.width / 2, cv.height / 2);
+  const t = frame - phaseStart;
+  if (phase === "final") return drawFinal(t);
+  drawWords();
+  if (candles.length) drawCandles(phase === "fall" ? Math.min(1, t / 40) : 0);
+  drawSmoke();
+}
+
+let last = 0, acc = 0, running = false;
+function loop(now) {
+  acc += Math.min(200, now - last); last = now;
+  while (acc >= 30) { step(); acc -= 30; }
+  render();
+  requestAnimationFrame(loop);
+}
+
+document.getElementById("start").onclick = async (e) => {
+  e.target.style.display = "none";
+  try {
+    await Promise.all([
+      document.fonts.load(`700 15px Vazirmatn`, persian + kurdish),
+      document.fonts.load(`700 12px "Noto Sans JP"`, "お誕生日おめでとう"),
+      document.fonts.load(`700 12px "Noto Sans KR"`, "생일 축하해요"),
+      document.fonts.load(`700 12px "Noto Sans SC"`, "生日快乐"),
+      document.fonts.load(`700 12px "Noto Sans Devanagari"`, "जन्मदिन मुबारक हो"),
+    ]);
+  } catch (_) {}
+  reset();
+  if (!running) { running = true; last = performance.now(); requestAnimationFrame(loop); }
+};
+document.getElementById("replay").onclick = (e) => { e.target.style.display = "none"; reset(); };
+</script>
+</body>
+</html>
