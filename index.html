@@ -19,6 +19,8 @@
   #start { top: 50%; transform: translate(-50%, -50%); font-size: 22px;
            box-shadow: 0 0 24px #b47cff88; animation: glow 1.6s ease-in-out infinite; }
   #replay { bottom: 28px; display: none; font-size: 15px; padding: 8px 20px; }
+  #mute { position: fixed; top: 14px; right: 14px; display: none; background: transparent;
+          border: none; font-size: 24px; cursor: pointer; opacity: .7; }
   @keyframes glow { 50% { box-shadow: 0 0 40px #ff6ec7aa; border-color: #ff6ec7; } }
 </style>
 </head>
@@ -26,6 +28,7 @@
 <canvas id="c"></canvas>
 <button id="start">🎁 Tap to open</button>
 <button id="replay">↻ again</button>
+<button id="mute">🔊</button>
 <script>
 const cv = document.getElementById("c");
 const ctx = cv.getContext("2d");
@@ -283,8 +286,61 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
+
+// ---------- music ----------
+// if a file called song.mp3 is next to this page, it plays that.
+// otherwise it plays a little music-box "Happy Birthday".
+let song = null, actx = null, master = null, boxTimer = null, muted = false;
+const N = { G4: 392, A4: 440, B4: 493.9, C5: 523.3, D5: 587.3, E5: 659.3, F5: 698.5, G5: 784 };
+const MELODY = [
+  ["G4", .75], ["G4", .25], ["A4", 1], ["G4", 1], ["C5", 1], ["B4", 2],
+  ["G4", .75], ["G4", .25], ["A4", 1], ["G4", 1], ["D5", 1], ["C5", 2],
+  ["G4", .75], ["G4", .25], ["G5", 1], ["E5", 1], ["C5", 1], ["B4", 1], ["A4", 2],
+  ["F5", .75], ["F5", .25], ["E5", 1], ["C5", 1], ["D5", 1], ["C5", 3],
+];
+function tone(freq, when) {
+  for (const [mult, vol] of [[1, 0.35], [2, 0.08], [3, 0.04]]) {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = "sine"; o.frequency.value = freq * mult;
+    g.gain.setValueAtTime(0, when);
+    g.gain.linearRampToValueAtTime(vol, when + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 1.6);
+    o.connect(g).connect(master); o.start(when); o.stop(when + 1.7);
+  }
+}
+function playBox() {
+  const beat = 0.55;
+  let t = actx.currentTime + 0.1;
+  for (const [n, d] of MELODY) { tone(N[n], t); t += d * beat; }
+  boxTimer = setTimeout(playBox, ((t - actx.currentTime) + 1.2) * 1000);
+}
+function startBox() {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    actx.resume();
+    if (!master) { master = actx.createGain(); master.connect(actx.destination); }
+    master.gain.value = muted ? 0 : 1;
+    clearTimeout(boxTimer); playBox();
+  } catch (_) {}
+}
+function startMusic() {
+  document.getElementById("mute").style.display = "block";
+  if (song) { song.currentTime = 0; song.play().catch(() => {}); return; }
+  if (actx) return startBox();
+  const a = new Audio("song.mp3");
+  a.loop = true;
+  a.play().then(() => { song = a; a.muted = muted; }).catch(() => startBox());
+}
+document.getElementById("mute").onclick = (e) => {
+  muted = !muted;
+  e.target.textContent = muted ? "🔇" : "🔊";
+  if (song) song.muted = muted;
+  if (master) master.gain.value = muted ? 0 : 1;
+};
+
 document.getElementById("start").onclick = async (e) => {
   e.target.style.display = "none";
+  startMusic();
   try {
     await Promise.all([
       document.fonts.load(`700 15px Vazirmatn`, persian + kurdish),
@@ -297,7 +353,7 @@ document.getElementById("start").onclick = async (e) => {
   reset();
   if (!running) { running = true; last = performance.now(); requestAnimationFrame(loop); }
 };
-document.getElementById("replay").onclick = (e) => { e.target.style.display = "none"; reset(); };
+document.getElementById("replay").onclick = (e) => { e.target.style.display = "none"; reset(); startMusic(); };
 </script>
 </body>
 </html>
